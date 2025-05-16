@@ -1,0 +1,7 @@
+.go-version
+.idea/
+*.idea/
+.vscode
+.vscode/
+.air.toml
+tmp
