@@ -5,3 +5,4 @@
 .vscode/
 .air.toml
 tmp
+.DS_Store
