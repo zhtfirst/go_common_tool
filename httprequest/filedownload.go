@@ -10,170 +10,192 @@ import (
 	"sync"
 )
 
-// DownloadFile downloads a file from the given URL and saves it to the specified path.
-// savePath is the path to save the file, including the file name.
+// RangeHeader 用于Range请求的请求头结构体
+type RangeHeader struct {
+	Range string `header:"Range"`
+}
+
+// DownloadFile 从指定URL下载文件并保存到指定路径
+// ctx: 上下文，用于控制请求的生命周期
+// url: 文件下载地址
+// savePath: 保存文件的路径，包括文件名
+// 返回值: 错误信息，如果下载成功则返回nil
 func DownloadFile(ctx context.Context, url string, savePath string) error {
-	// Create HTTP client
+	// 创建HTTP客户端
 	response, err := newService("file_download").Do(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %w", err)
+		return fmt.Errorf("创建HTTP请求失败: %w", err)
 	}
 	defer response.Body.Close()
 
-	// Check response status
+	// 检查响应状态
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed with status code: %d", response.StatusCode)
+		return fmt.Errorf("下载失败，状态码: %d", response.StatusCode)
 	}
 
-	// Ensure directory exists
+	// 确保目录存在
 	dir := filepath.Dir(savePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+		return fmt.Errorf("创建目录失败: %w", err)
 	}
 
-	// Create file
+	// 创建文件
 	file, err := os.Create(savePath)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
+		return fmt.Errorf("创建文件失败: %w", err)
 	}
 	defer file.Close()
 
-	// Write response body to file
+	// 将响应内容写入文件
 	if _, err := io.Copy(file, response.Body); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
+		return fmt.Errorf("写入文件失败: %w", err)
 	}
 
 	return nil
 }
 
-// ChunkDownload downloads a file in chunks and saves it to the specified path.
+// ChunkDownload 分块下载文件并保存到指定路径(可以下载任何类型的文件)
+// ctx: 上下文，用于控制请求的生命周期
+// url: 文件下载地址
+// savePath: 保存文件的路径，包括文件名
+// chunkSize: 每个分块的大小（字节）
+// 返回值: 错误信息，如果下载成功则返回nil
 func ChunkDownload(ctx context.Context, url string, savePath string, chunkSize int64) error {
-	// Create HTTP client
+	// 创建HTTP客户端
 	client := newService("chunk_download")
 
+	// 获取文件大小
 	totalSize, err := getFileSizeFallback(url)
 	if err != nil {
-		return fmt.Errorf("failed to get file size: %w", err)
+		// 如果无法获取文件大小，则使用普通下载方式
+		return DownloadFile(ctx, url, savePath)
 	}
 
 	if totalSize <= 0 {
-		return fmt.Errorf("invalid content length: %d", totalSize)
+		return fmt.Errorf("无效的内容长度: %d", totalSize)
 	}
 
-	// Calculate number of chunks
+	// 计算分块数量
 	chunks := totalSize / chunkSize
 	if totalSize%chunkSize != 0 {
 		chunks++
 	}
 
-	// Create temporary directory
+	// 创建临时目录
 	tmpDir := savePath + "_tmp"
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
+		return fmt.Errorf("创建临时目录失败: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Create error channel and wait group
+	// 创建错误通道和等待组
 	errChan := make(chan error, chunks)
 	var wg sync.WaitGroup
 
-	// Download chunks concurrently
+	// 并发下载分块
 	for i := int64(0); i < chunks; i++ {
 		wg.Add(1)
 		go func(chunkIndex int64) {
 			defer wg.Done()
 
+			// 计算当前分块的起始和结束位置
 			start := chunkIndex * chunkSize
 			end := start + chunkSize - 1
 			if end >= totalSize {
 				end = totalSize - 1
 			}
 
-			// Set Range header
-			headers := map[string]string{
-				"Range": fmt.Sprintf("bytes=%d-%d", start, end),
+			// 设置Range请求头
+			rangeHeader := RangeHeader{
+				Range: fmt.Sprintf("bytes=%d-%d", start, end),
 			}
 
-			// Download chunk
-			resp, err := client.Do(ctx, http.MethodGet, url, headers)
+			// 下载分块
+			resp, err := client.Do(ctx, http.MethodGet, url, rangeHeader)
 			if err != nil {
-				errChan <- fmt.Errorf("failed to download chunk %d: %w", chunkIndex, err)
+				errChan <- fmt.Errorf("下载分块%d失败: %w", chunkIndex, err)
 				return
 			}
 			defer resp.Body.Close()
 
+			// 检查响应状态
 			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-				errChan <- fmt.Errorf("failed to download chunk %d with status code: %d", chunkIndex, resp.StatusCode)
+				errChan <- fmt.Errorf("下载分块%d失败，状态码: %d", chunkIndex, resp.StatusCode)
 				return
 			}
 
-			// Save chunk
+			// 保存分块
 			chunkFile := filepath.Join(tmpDir, fmt.Sprintf("chunk_%d", chunkIndex))
 			file, err := os.Create(chunkFile)
 			if err != nil {
-				errChan <- fmt.Errorf("failed to create chunk file %d: %w", chunkIndex, err)
+				errChan <- fmt.Errorf("创建分块文件%d失败: %w", chunkIndex, err)
 				return
 			}
 
+			// 将分块内容写入文件
 			_, err = io.Copy(file, resp.Body)
 			file.Close()
 
 			if err != nil {
-				errChan <- fmt.Errorf("failed to write chunk %d: %w", chunkIndex, err)
+				errChan <- fmt.Errorf("写入分块%d失败: %w", chunkIndex, err)
 				return
 			}
 		}(i)
 	}
 
-	// Wait for all downloads to complete
+	// 等待所有下载完成
 	wg.Wait()
 	close(errChan)
 
-	// Check for errors
+	// 检查是否有错误
 	for err := range errChan {
 		if err != nil {
 			return err
 		}
 	}
 
-	// Merge chunks
+	// 合并分块
 	outFile, err := os.Create(savePath)
 	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
+		return fmt.Errorf("创建输出文件失败: %w", err)
 	}
 	defer outFile.Close()
 
+	// 按顺序合并所有分块
 	for i := int64(0); i < chunks; i++ {
 		chunkFile := filepath.Join(tmpDir, fmt.Sprintf("chunk_%d", i))
 		inFile, err := os.Open(chunkFile)
 		if err != nil {
-			return fmt.Errorf("failed to open chunk %d: %w", i, err)
+			return fmt.Errorf("打开分块%d失败: %w", i, err)
 		}
 
+		// 将分块内容写入最终文件
 		_, err = io.Copy(outFile, inFile)
 		inFile.Close()
 
 		if err != nil {
-			return fmt.Errorf("failed to merge chunk %d: %w", i, err)
+			return fmt.Errorf("合并分块%d失败: %w", i, err)
 		}
 	}
 
 	return nil
 }
 
-// getFileSizeFallback attempts to get file size using multiple methods in order of efficiency
+// getFileSizeFallback 尝试使用多种方法获取文件大小，按效率顺序尝试
+// url: 文件URL
+// 返回值: 文件大小和错误信息
 func getFileSizeFallback(url string) (int64, error) {
-	// Try HEAD method first (most efficient)
+	// 首先尝试HEAD方法（最高效）
 	if size, err := getFileSize(url); err == nil {
 		return size, nil
 	}
 
-	// Try Range method second
+	// 其次尝试Range方法
 	if size, err := getFileSizeWithRange(url); err == nil {
 		return size, nil
 	}
 
-	// Fallback to GET method (least efficient)
+	// 最后尝试GET方法（效率最低）
 	client := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -182,7 +204,7 @@ func getFileSizeFallback(url string) (int64, error) {
 
 	resp, err := client.Get(url)
 	if err != nil {
-		return 0, fmt.Errorf("GET request failed: %w", err)
+		return 0, fmt.Errorf("GET请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -190,55 +212,59 @@ func getFileSizeFallback(url string) (int64, error) {
 		return resp.ContentLength, nil
 	}
 
-	return 0, fmt.Errorf("unable to determine file size using any method")
+	return 0, fmt.Errorf("无法通过任何方法确定文件大小")
 }
 
-// getFileSize attempts to get file size using HEAD request
+// getFileSize 尝试使用HEAD请求获取文件大小
+// url: 文件URL
+// 返回值: 文件大小和错误信息
 func getFileSize(url string) (int64, error) {
 	resp, err := http.Head(url)
 	if err != nil {
-		return 0, fmt.Errorf("HEAD request failed: %w", err)
+		return 0, fmt.Errorf("HEAD请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("HEAD request failed with status: %d", resp.StatusCode)
+		return 0, fmt.Errorf("HEAD请求失败，状态码: %d", resp.StatusCode)
 	}
 
 	if resp.ContentLength == -1 {
-		return 0, fmt.Errorf("server did not provide Content-Length")
+		return 0, fmt.Errorf("服务器未提供Content-Length")
 	}
 
 	return resp.ContentLength, nil
 }
 
-// getFileSizeWithRange attempts to get file size using Range request
+// getFileSizeWithRange 尝试使用Range请求获取文件大小
+// url: 文件URL
+// 返回值: 文件大小和错误信息
 func getFileSizeWithRange(url string) (int64, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create request: %w", err)
+		return 0, fmt.Errorf("创建请求失败: %w", err)
 	}
 
 	req.Header.Set("Range", "bytes=0-1")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("Range request failed: %w", err)
+		return 0, fmt.Errorf("Range请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusPartialContent {
-		return 0, fmt.Errorf("server does not support Range requests")
+		return 0, fmt.Errorf("服务器不支持Range请求")
 	}
 
 	contentRange := resp.Header.Get("Content-Range")
 	if contentRange == "" {
-		return 0, fmt.Errorf("server did not provide Content-Range header")
+		return 0, fmt.Errorf("服务器未提供Content-Range头")
 	}
 
 	var totalSize int64
 	if _, err := fmt.Sscanf(contentRange, "bytes 0-1/%d", &totalSize); err != nil {
-		return 0, fmt.Errorf("failed to parse Content-Range: %w", err)
+		return 0, fmt.Errorf("解析Content-Range失败: %w", err)
 	}
 
 	return totalSize, nil
