@@ -125,3 +125,26 @@ func reverseString(str string) string {
 	}
 	return result.String()
 }
+
+// WordWrap
+//
+//	@Description: 用指定长度和子串拼接
+//	@param text
+//	@param lineWidth
+//	@param wrapSubstr
+//	@return string
+func WordWrap(text string, lineWidth int, wrapSubstr string) string {
+	var result strings.Builder
+
+	byText := []byte(text)
+	lText := len(byText)
+	for k, v := range byText {
+		result.WriteString(string(v))
+
+		if (k+1)%lineWidth == 0 && k+1 < lText {
+			result.WriteString(wrapSubstr)
+		}
+	}
+
+	return result.String()
+}

@@ -63,3 +63,44 @@ func TestTrimAndCombine(t *testing.T) {
 		t.Errorf("TrimAndCombine(%v) == %v, expected %v", input, result, expected)
 	}
 }
+
+func TestWordWrap(t *testing.T) {
+	cases := []struct {
+		text       string
+		lineWidth  int
+		wrapSubstr string
+		expected   string
+	}{
+		{
+			text:       "abcdefghij",
+			lineWidth:  3,
+			wrapSubstr: "-",
+			expected:   "abc-def-ghi-j",
+		},
+		{
+			text:       "hello world",
+			lineWidth:  5,
+			wrapSubstr: "\n",
+			expected:   "hello\n worl\nd",
+		},
+		{
+			text:       "short",
+			lineWidth:  10,
+			wrapSubstr: "*",
+			expected:   "short",
+		},
+		{
+			text:       "",
+			lineWidth:  4,
+			wrapSubstr: "-",
+			expected:   "",
+		},
+	}
+
+	for _, c := range cases {
+		result := WordWrap(c.text, c.lineWidth, c.wrapSubstr)
+		if result != c.expected {
+			t.Errorf("WordWrap(%q, %d, %q) == %q, expected %q", c.text, c.lineWidth, c.wrapSubstr, result, c.expected)
+		}
+	}
+}

@@ -1,4 +1,12 @@
 /*
+ * @Author: gavin v_zhangtao15@tal.com
+ * @Date: 2025-05-19 09:52:12
+ * @LastEditors: gavin v_zhangtao15@tal.com
+ * @LastEditTime: 2025-05-19 17:14:46
+ * @FilePath: /tool/rand.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+/*
  * @Author: gavin zhtfirst@163.com
  * @Date: 2023-06-27 13:29:36
  * @LastEditors: gavin zhtfirst@163.com
@@ -10,6 +18,7 @@
 package tool
 
 import (
+	"encoding/base64"
 	"math/rand"
 	"time"
 )
@@ -41,4 +50,24 @@ func GetRandNum(min_num int, max_num int) int {
 	}
 
 	return r.Intn(max_num-min_num) + min_num
+}
+
+// GenerateSecureRandomString
+//
+//	@Description: 生成指定长度的安全随机字符串
+//	@param n
+//	@return string
+//	@return error
+func GenerateSecureRandomString(n int) (string, error) {
+	// 生成足够长度的随机字节序列
+	b := make([]byte, n)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", err
+	}
+
+	// 将随机字节序列编码为base64字符串
+	s := base64.URLEncoding.EncodeToString(b)
+	// 截取字符串以匹配所需长度，因为base64编码会增加长度
+	return s[:n], nil
 }

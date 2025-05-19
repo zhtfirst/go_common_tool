@@ -41,3 +41,37 @@ func TestGetRandNum_NegativeRange(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateSecureRandomString
+//
+//	@Description: 测试GenerateSecureRandomString
+//	@param t
+func TestGenerateSecureRandomString(t *testing.T) {
+	type args struct {
+		length int
+	}
+
+	tests := []struct {
+		name string
+		args args
+	}{
+		{
+			name: "test1",
+			args: args{
+				length: 10,
+			},
+		},
+		{
+			name: "test2",
+			args: args{
+				length: 20,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Log(GenerateSecureRandomString(tt.args.length))
+		})
+	}
+}

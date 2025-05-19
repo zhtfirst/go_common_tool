@@ -33,3 +33,44 @@ func TestMapMerge(t *testing.T) {
 		}
 	}
 }
+
+func TestGetValueWithDefault(t *testing.T) {
+	cases := []struct {
+		m            map[string]int
+		key          string
+		defaultValue int
+		expected     int
+	}{
+		{
+			map[string]int{"a": 1, "b": 2},
+			"a",
+			0,
+			1,
+		},
+		{
+			map[string]int{"a": 1, "b": 2},
+			"c",
+			0,
+			0,
+		},
+		{
+			map[string]int{"x": 10, "y": 20},
+			"y",
+			5,
+			20,
+		},
+		{
+			map[string]int{"x": 10, "y": 20},
+			"z",
+			5,
+			5,
+		},
+	}
+
+	for _, c := range cases {
+		result := GetValueWithDefault(c.m, c.key, c.defaultValue)
+		if result != c.expected {
+			t.Errorf("GetValueWithDefault(%v, %q, %v) == %v, expected %v", c.m, c.key, c.defaultValue, result, c.expected)
+		}
+	}
+}
