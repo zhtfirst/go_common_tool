@@ -48,3 +48,11 @@ func RandomElement(slice []int) (int, error) {
 	index := GetRandNum(0, length-1) // 生成0到length-1之间的随机数
 	return slice[index], nil
 }
+
+// ReverseSlice 反转任意类型的切片
+// 函数没有返回值是因为它采用了原地修改的设计模式。在 Go 中，切片是引用类型，当你将切片传递给函数时，函数内对切片的修改会直接反映到原始切片上。
+func ReverseSlice[T any](slice []T) {
+	for i, j := 0, len(slice)-1; i < j; i, j = i+1, j-1 {
+		slice[i], slice[j] = slice[j], slice[i]
+	}
+}
